@@ -16,14 +16,20 @@ from telethon.tl.types import (
 )
 from db import get_all_sessions, delete_session_by_string, is_admin, save_user_proxies_to_db, get_user_proxies_from_db
 from config import API_ID, API_HASH, ADMIN_ID
+from db import get_all_user_proxies
+
+def load_proxies_from_db():
+    all_proxies = get_all_user_proxies()
+    for user_id, proxies in all_proxies.items():
+        user_proxies[user_id] = proxies
 
 reporting_tasks = {}
 targets = {}
 selected_reasons = {}
 joined_once = set()
 user_proxies = {}
-active_usernames_list = []
-dead_usernames_list = []
+proxy_index_map = {}      # session_uid → proxy_index
+proxy_used_indexes = {}   # user_id → set of used indexes
 
 class ReportStates(StatesGroup):
     waiting_for_target = State()
@@ -40,15 +46,29 @@ def get_random_device_info():
         "system_lang_code": "en-US"
     }
 
-def get_safe_client(session_str=None, user_id=None):
+def get_safe_client(session_str=None, user_id=None, session_uid=None):
     device_info = get_random_device_info()
     proxy = None
+
     if hasattr(get_safe_client, "proxy_mode") and get_safe_client.proxy_mode:
         proxies = user_proxies.get(user_id, [])
         if proxies:
-            proxy_data = random.choice(proxies)
+            if user_id not in proxy_used_indexes:
+                proxy_used_indexes[user_id] = set()
+
+            if session_uid not in proxy_index_map:
+                unused = [i for i in range(len(proxies)) if i not in proxy_used_indexes[user_id]]
+                if not unused:
+                    proxy_used_indexes[user_id] = set()
+                    unused = list(range(len(proxies)))
+                chosen = random.choice(unused)
+                proxy_index_map[session_uid] = chosen
+                proxy_used_indexes[user_id].add(chosen)
+
+            proxy_data = proxies[proxy_index_map[session_uid]]
             proxy_type, ip, port, user, passwd = proxy_data
-            proxy = (socks.SOCKS5, ip, int(port), True if user else False, user, passwd)
+            proxy = (socks.SOCKS5, ip, int(port), bool(user), user, passwd)
+
     return TelegramClient(
         StringSession(session_str) if session_str else StringSession(),
         API_ID,
@@ -60,6 +80,9 @@ def get_safe_client(session_str=None, user_id=None):
         system_lang_code=device_info["system_lang_code"],
         proxy=proxy
     )
+
+
+
 
 reasons_map = {
     "Spam": InputReportReasonSpam(),
@@ -241,7 +264,8 @@ async def start_mass_report(user_id, target, reasons, bot):
 
     for uid, session_str in sessions:
         try:
-            client = get_safe_client(session_str, user_id)
+            client = get_safe_client(session_str, user_id, session_uid=uid)
+
             await client.connect()
             if await client.is_user_authorized():
                 valid_sessions.append((uid, session_str))
@@ -263,7 +287,8 @@ async def start_mass_report(user_id, target, reasons, bot):
 
     for uid, session_str in valid_sessions:
         try:
-            client = get_safe_client(session_str, user_id)
+            client = get_safe_client(session_str, user_id, session_uid=uid)
+
             await client.connect()
             me = await client.get_me()
             uname = me.username or me.first_name or str(uid)
@@ -275,7 +300,18 @@ async def start_mass_report(user_id, target, reasons, bot):
                     await client(ReportPeerRequest(peer=entity, reason=random.choice([reasons_map[r] for r in reasons]), message="Reported"))
                     await asyncio.sleep(2)
                     await client(LeaveChannelRequest(entity))
-                    await bot.send_message(user_id, f"✅ {uname} joined, reported & left {target}")
+                    proxy_text = ""
+                    if getattr(get_safe_client, "proxy_mode", False):
+                        proxies = user_proxies.get(user_id, [])
+                        proxy_data = random.choice(proxies)
+
+                    if proxy_data:
+                        ip, port = proxy_data[1], proxy_data[2]
+                        userpass = f":{proxy_data[3]}:{proxy_data[4]}" if proxy_data[3] else ""
+                        proxy_text = f"\n🌐 Used Proxy: {ip}:{port}{userpass}"
+
+                    await bot.send_message(user_id, f"✅ {uname} joined, reported & left {target}{proxy_text}")
+
                     joined_once.add(session_str)
                 except Exception as e:
                     await bot.send_message(user_id, f"⚠️ {uname} couldn't join/report: {e}")
@@ -293,10 +329,25 @@ async def report_loop(client, target, user_id, uname, reasons, session_str, bot)
             try:
                 entity = await client.get_entity(target)
                 await client(ReportPeerRequest(peer=entity, reason=reasons_map[reason], message="Reported"))
-                await bot.send_message(user_id, f"📣 {uname} reported with {reason}")
+
+                # ✅ Show proxy used info (if enabled)
+                proxy_text = ""
+                if getattr(get_safe_client, "proxy_mode", False):
+                    proxies = user_proxies.get(user_id, [])
+                    proxy_data = random.choice(proxies)
+
+                    if proxy_data:
+                        ip, port = proxy_data[1], proxy_data[2]
+                        userpass = f":{proxy_data[3]}:{proxy_data[4]}" if proxy_data[3] else ""
+                        proxy_text = f"\n🌐 Used Proxy: {ip}:{port}{userpass}"
+
+                await bot.send_message(user_id, f"📣 {uname} reported with {reason}{proxy_text}")
+
             except Exception as e:
                 await bot.send_message(ADMIN_ID, f"⚠️ {uname} failed: {e}")
                 break
+
             await asyncio.sleep(random.randint(3, 7))
+
     except Exception as e:
         await bot.send_message(ADMIN_ID, f"❌ {uname} crashed: {e}")
