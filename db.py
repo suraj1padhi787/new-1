@@ -1,12 +1,12 @@
 import sqlite3
 from config import DB_PATH, ADMIN_ID
-ALTER TABLE proxies ADD COLUMN username TEXT;
-ALTER TABLE proxies ADD COLUMN password TEXT;
 
 # 🔧 Initialize DB (run once at startup)
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+
+    # Sessions Table
     c.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
             user_id INTEGER,
@@ -14,21 +14,26 @@ def init_db():
             created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # Admins Table
     c.execute("""
         CREATE TABLE IF NOT EXISTS admins (
             user_id INTEGER PRIMARY KEY
         )
     """)
+
+    # Proxies Table (with username/password support)
     c.execute("""
-    CREATE TABLE IF NOT EXISTS proxies (
-        user_id INTEGER,
-        proxy_type TEXT,
-        ip TEXT,
-        port INTEGER,
-        username TEXT,
-        password TEXT
+        CREATE TABLE IF NOT EXISTS proxies (
+            user_id INTEGER,
+            proxy_type TEXT,
+            ip TEXT,
+            port INTEGER,
+            username TEXT,
+            password TEXT
         )
     """)
+
     conn.commit()
     conn.close()
 
@@ -109,35 +114,6 @@ def is_admin(user_id):
     return user_id == ADMIN_ID or user_id in get_all_admins()
 
 # 🔐 Proxies
-def save_user_proxies(user_id, proxy_list):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("DELETE FROM proxies WHERE user_id = ?", (user_id,))
-    c.executemany("INSERT INTO proxies (user_id, proxy_type, ip, port) VALUES (?, ?, ?, ?)",
-                  [(user_id, t, ip, port) for t, ip, port in proxy_list])
-    conn.commit()
-    conn.close()
-
-def get_user_proxies(user_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT proxy_type, ip, port FROM proxies WHERE user_id = ?", (user_id,))
-    proxies = c.fetchall()
-    conn.close()
-    return [(t, ip, port) for t, ip, port in proxies]
-# ─── Inside init_db() ───
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS proxies (
-        user_id INTEGER,
-        proxy_type TEXT,
-        ip TEXT,
-        port INTEGER,
-        username TEXT,
-        password TEXT
-    )
-""")
-
-# ─── New Functions ───
 def save_user_proxies_to_db(user_id, proxy_list):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -156,4 +132,3 @@ def get_user_proxies_from_db(user_id):
     proxies = c.fetchall()
     conn.close()
     return proxies
-
