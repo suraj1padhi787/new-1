@@ -1,5 +1,7 @@
 import sqlite3
 from config import DB_PATH, ADMIN_ID
+ALTER TABLE proxies ADD COLUMN username TEXT;
+ALTER TABLE proxies ADD COLUMN password TEXT;
 
 # 🔧 Initialize DB (run once at startup)
 def init_db():
@@ -18,11 +20,13 @@ def init_db():
         )
     """)
     c.execute("""
-        CREATE TABLE IF NOT EXISTS proxies (
-            user_id INTEGER,
-            proxy_type TEXT,
-            ip TEXT,
-            port INTEGER
+    CREATE TABLE IF NOT EXISTS proxies (
+        user_id INTEGER,
+        proxy_type TEXT,
+        ip TEXT,
+        port INTEGER,
+        username TEXT,
+        password TEXT
         )
     """)
     conn.commit()
