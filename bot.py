@@ -2,6 +2,8 @@
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types
+from report_module import register_report_handlers, register_stop_handler, load_proxies_from_db
+
 from aiogram.dispatcher import FSMContext
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -13,7 +15,25 @@ from session_manager import send_otp_code, confirm_otp_code, confirm_2fa_passwor
 from username_changer import start_username_changer, stop_username_changer
 from group_privater import schedule_group_privacy
 from status import get_status_message
-from report_module import register_report_handlers, register_stop_handler
+from db import init_db
+
+from report_module import register_report_handlers, register_stop_handler, load_proxies_from_db
+
+# Initialize database and admins
+init_db()
+init_admins()
+
+# Setup bot + dispatcher
+bot = Bot(token=BOT_TOKEN)
+storage = MemoryStorage()
+dp = Dispatcher(bot, storage=storage)
+
+# ✅ Load proxies and register handlers
+load_proxies_from_db()
+register_report_handlers(dp)
+register_stop_handler(dp)
+
+
 
 
 # ✅ Initialize
@@ -22,15 +42,13 @@ storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 init_db()
 init_admins()
+
+load_proxies_from_db()  # ✅ Load proxies from DB into memory
+
 register_report_handlers(dp)
 register_stop_handler(dp)
 
 otp_cache = {}
-from report_module import register_report_handlers, register_stop_handler
-register_report_handlers(dp)
-register_stop_handler(dp)
-
-
 def generate_otp_keyboard(entered: str = ""):
     keyboard = []
     display_text = f"🔢 OTP: {entered or '____'}"
@@ -286,4 +304,4 @@ async def list_admins_cmd(msg: types.Message):
 
 if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True)
-
+ 
