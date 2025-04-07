@@ -1,7 +1,7 @@
 import sqlite3
 from config import DB_PATH, ADMIN_ID
 
-# 🔧 Initialize DB (run once at startup)
+# 🔧 Initialize DB (called from bot.py)
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -22,17 +22,25 @@ def init_db():
         )
     """)
 
-    # Proxies Table (with username/password support)
+    # Proxies Table (initial columns)
     c.execute("""
         CREATE TABLE IF NOT EXISTS proxies (
             user_id INTEGER,
             proxy_type TEXT,
             ip TEXT,
-            port INTEGER,
-            username TEXT,
-            password TEXT
+            port INTEGER
         )
     """)
+
+    # ✅ Safe add missing columns (username, password)
+    try:
+        c.execute("ALTER TABLE proxies ADD COLUMN username TEXT")
+    except:
+        pass
+    try:
+        c.execute("ALTER TABLE proxies ADD COLUMN password TEXT")
+    except:
+        pass
 
     conn.commit()
     conn.close()
@@ -63,7 +71,7 @@ def get_all_sessions():
     conn.close()
     return rows
 
-# ❌ Delete session by string (used to remove dead sessions)
+# ❌ Delete session by string
 def delete_session_by_string(session_string):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -113,7 +121,7 @@ def get_all_admins():
 def is_admin(user_id):
     return user_id == ADMIN_ID or user_id in get_all_admins()
 
-# 🔐 Proxies
+# 🔐 Proxies (with username + password support)
 def save_user_proxies_to_db(user_id, proxy_list):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -132,3 +140,18 @@ def get_user_proxies_from_db(user_id):
     proxies = c.fetchall()
     conn.close()
     return proxies
+# 🔁 Load all proxies for all users
+def get_all_user_proxies():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT user_id, proxy_type, ip, port, username, password FROM proxies")
+    rows = c.fetchall()
+    conn.close()
+
+    proxy_dict = {}
+    for user_id, proxy_type, ip, port, username, password in rows:
+        if user_id not in proxy_dict:
+            proxy_dict[user_id] = []
+        proxy_dict[user_id].append((proxy_type, ip, port, username, password))
+    return proxy_dict
+
